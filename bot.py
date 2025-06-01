@@ -38,8 +38,13 @@ try:
         raise ValueError(f"Missing required environment variables: {', '.join(missing_vars)}")
     
     # Convert string IDs to integers
-    admin_id = int(admin_id)
-    GROUP_ID = int(GROUP_ID)
+    try:
+        api_id = int(api_id)
+        admin_id = int(admin_id)
+        GROUP_ID = int(GROUP_ID)
+    except ValueError as e:
+        logger.error(f"Invalid format for numeric environment variables: {e}")
+        raise ValueError(f"Invalid format for numeric environment variables: {e}")
     logger.info("Environment variables loaded successfully")
 except ValueError as e:
     logger.error(f"Environment variable error: {e}")
@@ -57,7 +62,20 @@ except Exception as e:
     raise
 
 session_name = "userbot"
-client = TelegramClient(session_name, int(api_id), api_hash)
+client = TelegramClient(session_name, api_id, api_hash)
+
+# --- Load Rules from rules.json ---
+try:
+    with open('rules.json', 'r') as f:
+        rules_data = json.load(f)
+    rules = {rule['trigger'].lower(): rule['reply'] for rule in rules_data['rules']}
+    logger.info("Rules loaded successfully from rules.json")
+except FileNotFoundError:
+    logger.error("rules.json file not found")
+    rules = {}
+except Exception as e:
+    logger.error(f"Error loading rules.json: {e}")
+    rules = {}
 
 # --- MEMORY ---
 user_context = {}
@@ -299,6 +317,13 @@ async def handler(event):
                     await client.send_message(chat_id, "❌ Block/delete mein dikkat, baad mein try karo!")
             return
 
+    # Check for rules-based triggers (from rules.json)
+    for trigger, reply in rules.items():
+        if trigger in user_message:
+            await event.respond(reply)
+            logger.info(f"Rules-based reply sent for trigger '{trigger}'")
+            return
+
     # If chat is not active and not in force_online mode, ignore non-admin incoming messages
     if not ai_active_chats.get(chat_id, False) and not force_online:
         logger.info(f"AI inactive for chat {chat_id} and not forced online, ignoring non-admin incoming message")
@@ -410,3 +435,5 @@ try:
 except Exception as e:
     logger.error(f"Error starting Telegram client: {e}")
     raise
+
+
