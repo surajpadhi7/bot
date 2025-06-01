@@ -4,9 +4,14 @@ import json
 import time
 import difflib
 import os
+import logging
 from telethon import TelegramClient, events, functions, types
 from openai import OpenAI
 from dotenv import load_dotenv
+
+# Set up logging
+logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
+logger = logging.getLogger(__name__)
 
 # Load .env file for local development
 load_dotenv()
@@ -29,24 +34,26 @@ try:
     }
     missing_vars = [key for key, value in required_vars.items() if not value]
     if missing_vars:
+        logger.error(f"Missing required environment variables: {', '.join(missing_vars)}")
         raise ValueError(f"Missing required environment variables: {', '.join(missing_vars)}")
     
     # Convert string IDs to integers
     admin_id = int(admin_id)
     GROUP_ID = int(GROUP_ID)
+    logger.info("Environment variables loaded successfully")
 except ValueError as e:
-    print(f"Environment variable error: {e}")
+    logger.error(f"Environment variable error: {e}")
     raise
 except Exception as e:
-    print(f"Unexpected error while loading environment variables: {e}")
+    logger.error(f"Unexpected error while loading environment variables: {e}")
     raise
 
 # Initialize OpenAI client
 try:
     openai = OpenAI(api_key=openai_api_key)
-    print("OpenAI client initialized successfully")
+    logger.info("OpenAI client initialized successfully")
 except Exception as e:
-    print(f"Error initializing OpenAI client: {e}")
+    logger.error(f"Error initializing OpenAI client: {e}")
     raise
 
 session_name = "userbot"
@@ -151,29 +158,30 @@ async def send_typing(event):
         ))
         await asyncio.sleep(random.uniform(1.0, 2.0))
     except Exception as e:
-        print(f"Typing error: {e}")
+        logger.error(f"Typing error: {e}")
 
 # --- Add Reaction ---
 async def add_reaction(event, reaction_type):
     try:
         emoji = random.choice(reaction_map[reaction_type])
-        print(f"Adding {reaction_type} reaction: {emoji} to message ID {event.id} in chat {event.chat_id}")
+        logger.info(f"Adding {reaction_type} reaction: {emoji} to message ID {event.id} in chat {event.chat_id}")
         await event.client(functions.messages.SendReactionRequest(
             peer=event.chat_id,
             msg_id=event.id,
             reaction=[types.ReactionEmoji(emoticon=emoji)]
         ))
-        print(f"Successfully added {reaction_type} reaction: {emoji}")
+        logger.info(f"Successfully added {reaction_type} reaction: {emoji}")
     except Exception as e:
-        print(f"Reaction error for {reaction_type}: {e}")
+        logger.error(f"Reaction error for {reaction_type}: {e}")
 
 # --- Keep Always Online ---
 async def keep_online():
     while True:
         try:
             await client(functions.account.UpdateStatusRequest(offline=False))
+            logger.info("Set online status")
         except Exception as e:
-            print(f"Online error: {e}")
+            logger.error(f"Online error: {e}")
         await asyncio.sleep(60)
 
 # --- Message Handler ---
@@ -186,41 +194,41 @@ async def handler(event):
     chat_id = event.chat_id
     user_message = event.raw_text.strip().lower() if event.raw_text else ""
 
-    print(f"Message {'sent' if event.out else 'received'}, sender_id: {sender_id}, chat_id: {chat_id}, admin_id: {admin_id}, message: {user_message}, ai_active_chats: {ai_active_chats}, force_online: {force_online}")
+    logger.info(f"Message {'sent' if event.out else 'received'}, sender_id: {sender_id}, chat_id: {chat_id}, admin_id: {admin_id}, message: {user_message}, ai_active_chats: {ai_active_chats}, force_online: {force_online}")
 
     # Handle admin commands
     if sender_id == admin_id:
-        print(f"Admin command detected: {user_message}")
+        logger.info(f"Admin command detected: {user_message}")
         if user_message == '/':
             await event.delete()
             await client.send_message(chat_id, "📋 Available commands:\n" + "\n".join(commands))
-            print(f"Command suggestions sent for chat {chat_id}")
+            logger.info(f"Command suggestions sent for chat {chat_id}")
             return
         if user_message == '/start':
             ai_active_chats[chat_id] = True
             await event.delete()
             await client.send_message(chat_id, "✅ AI replies is chat mein shuru! 😎", reply_to=event.id)
-            print(f"StartAI executed for chat {chat_id}")
+            logger.info(f"StartAI executed for chat {chat_id}")
             return
         if user_message == '/stop':
             ai_active_chats[chat_id] = False
             await event.delete()
             await client.send_message(chat_id, "✅ AI replies is chat mein band! 🛑", reply_to=event.id)
-            print(f"StopAI executed for chat {chat_id}")
+            logger.info(f"StopAI executed for chat {chat_id}")
             return
         if user_message == '/online':
             force_online = True
             ai_active_chats[chat_id] = True
             await event.delete()
             await client.send_message(chat_id, "✅ Bot fully online! Sab chats mein reply karega until /offline.", reply_to=event.id)
-            print("Online command executed")
+            logger.info("Online command executed")
             return
         if user_message == '/offline':
             force_online = False
             ai_active_chats[chat_id] = False
             await event.delete()
             await client.send_message(chat_id, "✅ Bot offline! AI replies band. /start ya /online se wapas chalu karo.", reply_to=event.id)
-            print("Offline command executed")
+            logger.info("Offline command executed")
             return
         if user_message == '/del':
             try:
@@ -232,9 +240,9 @@ async def handler(event):
                 else:
                     await client.send_message(chat_id, "❌ Koi messages nahi mile deleting ke liye!")
                 await event.delete()
-                print(f"Delete command executed for chat {chat_id}")
+                logger.info(f"Delete command executed for chat {chat_id}")
             except Exception as e:
-                print(f"Delete error: {e}")
+                logger.error(f"Delete error: {e}")
                 await client.send_message(chat_id, "❌ Delete mein thodi dikkat aayi, baad mein try karo!")
             return
 
@@ -244,7 +252,7 @@ async def handler(event):
 
     # Check if user is muted
     if sender_id in muted_users:
-        print(f"User {sender_id} is muted, ignoring message")
+        logger.info(f"User {sender_id} is muted, ignoring message")
         return
 
     # Spam Detection (works regardless of AI status)
@@ -258,7 +266,7 @@ async def handler(event):
             muted_users.add(sender_id)
             await client.send_message(chat_id, "🚫 Bhai, zyada messages bhej raha hai! Mute kar diya, thodi der baad try karo.")
             await client.send_message(admin_id, f"🚫 User {sender_id} muted for spamming in chat {chat_id} (>10 messages in 1 min).")
-            print(f"User {sender_id} muted for spamming in chat {chat_id}")
+            logger.info(f"User {sender_id} muted for spamming in chat {chat_id}")
             return
     else:
         user_message_count[sender_id] = {'count': 1, 'first_message_time': current_time}
@@ -274,7 +282,7 @@ async def handler(event):
             
             if warnings_left > 0:
                 await client.send_message(chat_id, f"⚠️ Bhai, gali mat de! {warnings_left} warning baki hain, fir block ho jayega.")
-                print(f"Warning {user_warnings[sender_id]} issued to user {sender_id} for abuse")
+                logger.info(f"Warning {user_warnings[sender_id]} issued to user {sender_id} for abuse")
             else:
                 try:
                     messages = await client.get_messages(chat_id, from_user=sender_id, limit=100)
@@ -284,16 +292,16 @@ async def handler(event):
                     await client(functions.contacts.BlockRequest(id=sender_id))
                     await client.send_message(chat_id, "🚫 User blocked aur messages delete kar diye for gali!")
                     await client.send_message(admin_id, f"🚫 User {sender_id} blocked and messages deleted in chat {chat_id} for abuse.")
-                    print(f"User {sender_id} blocked and messages deleted for abuse in chat {chat_id}")
+                    logger.info(f"User {sender_id} blocked and messages deleted for abuse in chat {chat_id}")
                     del user_warnings[sender_id]
                 except Exception as e:
-                    print(f"Error blocking/deleting for abuse: {e}")
+                    logger.error(f"Error blocking/deleting for abuse: {e}")
                     await client.send_message(chat_id, "❌ Block/delete mein dikkat, baad mein try karo!")
             return
 
     # If chat is not active and not in force_online mode, ignore non-admin incoming messages
     if not ai_active_chats.get(chat_id, False) and not force_online:
-        print(f"AI inactive for chat {chat_id} and not forced online, ignoring non-admin incoming message")
+        logger.info(f"AI inactive for chat {chat_id} and not forced online, ignoring non-admin incoming message")
         return
 
     # Process non-admin incoming messages
@@ -301,10 +309,10 @@ async def handler(event):
 
     # Add reactions for greetings or thanks
     if any(word in user_message for word in greetings_words):
-        print("Detected greetings message")
+        logger.info("Detected greetings message")
         await add_reaction(event, 'greetings')
     elif any(word in user_message for word in thanks_words):
-        print("Detected thanks message")
+        logger.info("Detected thanks message")
         await add_reaction(event, 'thanks')
 
     if sender_id not in user_context:
@@ -389,10 +397,16 @@ async def handler(event):
         await event.respond(bot_reply)
 
     except Exception as e:
-        print(f"Error: {e}")
+        logger.error(f"Error: {e}")
         await event.respond("Bhai thoda error aagaya 😔 Try later.")
 
 # --- Start Client ---
-client.start()
-client.loop.create_task(keep_online())
-client.run_until_disconnected()
+try:
+    logger.info("Starting Telegram client")
+    client.start()
+    logger.info("Telegram client started successfully")
+    client.loop.create_task(keep_online())
+    client.run_until_disconnected()
+except Exception as e:
+    logger.error(f"Error starting Telegram client: {e}")
+    raise
